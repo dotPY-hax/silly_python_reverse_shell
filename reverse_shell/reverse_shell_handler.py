@@ -111,14 +111,14 @@ class RemoteInteractiveColoredConsole(InteractiveColoredConsole):
         hashed = md5(content).hexdigest()
         touch = f"""with open('{remote_file}', 'w') as f:\n\tpass\n"""
         self.runsource(touch, None, None)
-        step = len(content)//100 if step_override is None else step_override
-        for i in range(0,len(content), step):
-            slice = content[i:i+step]
+        slice_size = max(len(content)//2000, 1) if step_override is None else step_override
+        for i in range(0,len(content), slice_size):
+            slice = content[i:i+slice_size]
             slice = base64.b64encode(slice)
             source = f"""import base64\nwith open('{remote_file}', 'ab+') as f:\n\tcontent=base64.b64decode({slice})\n\tf.write(content)"""
             self.runsource(source, None, None)
-        content = base64.b64encode(content)
-        return f"from hashlib import md5\nprint(md5(base64.b64decode({content})).hexdigest()=='{hashed}')"
+            print(f"uploading slice {i}/{len(content)}")
+        return f"from hashlib import md5\nwith open('{remote_file}', 'rb') as f:\n\tprint(md5(base64.b64decode(f.read())).hexdigest()=='{hashed}')"
 
 
     def download_file(self, remote_file, local_file):
@@ -184,7 +184,7 @@ class RemoteInteractiveColoredConsole(InteractiveColoredConsole):
         print("use & for special commands")
         print("&exit to exit")
         print("&upload <local> <remote> to upload")
-        print("&uploadsliced <local> <remote> to upload in 10 byte slices.. this is slow and only for emergencies on offsec trash boxes")
+        print("&uploadsliced <local> <remote> to upload in small slices.. this is slow and only for emergencies on offsec trash boxes")
         print("&download <remote> <local> to download")
         print("&winpeas run winpeas from the local the kali path (/usr/share/peass/)")
         print("&linpeas run linpeas from the local the kali path (/usr/share/peass/)")
