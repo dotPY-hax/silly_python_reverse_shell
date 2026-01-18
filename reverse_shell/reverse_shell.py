@@ -1,4 +1,4 @@
-import socket, sys
+import socket, sys, traceback
 
 if len(sys.argv) < 3:
     print("USAGE: ip port")
@@ -33,7 +33,10 @@ try:
     while True:
         socket_input = sread()
         socket_input = socket_input.decode().strip()
-        exec(socket_input)
+        try:
+            exec(socket_input)
+        except Exception as e:
+            print(traceback.format_exc())
         stdout.write("\x04\n")
         stdout.flush()
         stderr.flush()

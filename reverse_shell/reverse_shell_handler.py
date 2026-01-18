@@ -118,7 +118,7 @@ class RemoteInteractiveColoredConsole(InteractiveColoredConsole):
             source = f"""import base64\nwith open('{remote_file}', 'ab+') as f:\n\tcontent=base64.b64decode({slice})\n\tf.write(content)"""
             self.runsource(source, None, None)
             print(f"uploading slice {i}/{len(content)}")
-        return f"from hashlib import md5\nwith open('{remote_file}', 'rb') as f:\n\tprint(md5(base64.b64decode(f.read())).hexdigest()=='{hashed}')"
+        return f"from hashlib import md5\nwith open('{remote_file}', 'rb') as f:\n\tprint(md5(f.read()).hexdigest()=='{hashed}')"
 
 
     def download_file(self, remote_file, local_file):
