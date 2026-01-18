@@ -43,14 +43,14 @@ class RemoteInteractiveColoredConsole(InteractiveColoredConsole):
     def special_command(self, source, filename, symbol):
         if source == "exit" or source == "quit":
             exit()
-        elif source.startswith("upload"):
-            #upload
-            _, local_file, remote_file = source.split(" ")
-            return self.upload_file(local_file, remote_file)
         elif source.startswith("uploadsliced"):
             #upload sliced for bad machines like offsec trash
             _, local_file, remote_file = source.split(" ")
             return self.upload_file_sliced(local_file, remote_file)
+        elif source.startswith("upload"):
+            #upload
+            _, local_file, remote_file = source.split(" ")
+            return self.upload_file(local_file, remote_file)
         elif source.startswith("download"):
             #download
             _, remote_file, local_file = source.split(" ")
