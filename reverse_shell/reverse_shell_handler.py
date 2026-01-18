@@ -105,14 +105,15 @@ class RemoteInteractiveColoredConsole(InteractiveColoredConsole):
         source = f"""import base64\nfrom hashlib import md5\nwith open('{remote_file}', 'wb') as f:\n\tcontent=base64.b64decode({content})\n\tf.write(content)\n\tprint(md5(content).hexdigest()=='{hashed}')"""
         return source
 
-    def upload_file_sliced(self,local_file, remote_file):
+    def upload_file_sliced(self,local_file, remote_file, step_override=None):
         with open(local_file, "rb") as f:
             content = f.read()
         hashed = md5(content).hexdigest()
         touch = f"""with open('{remote_file}', 'w') as f:\n\tpass\n"""
         self.runsource(touch, None, None)
-        for i in range(0,len(content), 10):
-            slice = content[i:i+10]
+        step = len(content)//100 if step_override is None else step_override
+        for i in range(0,len(content), step):
+            slice = content[i:i+step]
             slice = base64.b64encode(slice)
             source = f"""import base64\nwith open('{remote_file}', 'ab+') as f:\n\tcontent=base64.b64decode({slice})\n\tf.write(content)"""
             self.runsource(source, None, None)
