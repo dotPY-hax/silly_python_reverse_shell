@@ -28,7 +28,7 @@ class RemoteInteractiveColoredConsole(InteractiveColoredConsole):
         self.stdin = self.connection.makefile("w")
         self.stdout = self.connection.makefile("rb")
         print("Loading second stage")
-        self.run_code_line("&run reverse_shell_second_stage.py")
+        self.run_code_line("&run reverse_shell/reverse_shell_second_stage.py")
 
     def remote_os_system_call(self,source):
         source = source.replace('"', '\\"')
@@ -187,7 +187,3 @@ def reverse_shell_handler(local_port):
         run_multiline_interactive_console(console)
     finally:
         console.kill_remote()
-
-
-if __name__ == "__main__":
-    reverse_shell_handler(42069)
