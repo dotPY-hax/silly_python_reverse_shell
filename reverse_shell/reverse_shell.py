@@ -14,8 +14,10 @@ print(f"Connecting to {ip} {port}")
 stdout = s.makefile('w')
 stderr = s.makefile('w')
 stdin = s.makefile("rb")
-sys.stdout = stdout
-sys.stderr = stderr
+
+def default_io():
+    sys.stdout = stdout
+    sys.stderr = stdout
 
 def sread():
     lines = []
@@ -29,6 +31,8 @@ def lprint(string):
     sys.__stdout__.write(str(string))
     sys.__stdout__.flush()
 
+default_io()
+
 try:
     while True:
         socket_input = sread()
@@ -39,6 +43,6 @@ try:
             print(traceback.format_exc())
         stdout.write("\x04\n")
         stdout.flush()
-        stderr.flush()
+
 except (KeyboardInterrupt, SystemExit):
     exit()
